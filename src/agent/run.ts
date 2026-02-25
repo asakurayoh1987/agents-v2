@@ -1,4 +1,4 @@
-import { streamText, type ModelMessage } from 'ai';
+import { streamText, type ModelMessage, type ToolCallPart } from 'ai';
 import { getTracer } from '@lmnr-ai/lmnr';
 import { tools } from './tools/index.ts';
 import { executeTool } from './executeTool.ts';
@@ -123,7 +123,9 @@ export async function runAgent(
     const toolCalls: ToolCallInfo[] = [];
     let currentText = '';
     let streamError: Error | null = null;
+    const contentParts: Array<ToolCallPart> = [];
 
+    // First, consume the entire stream to collect all data
     try {
       for await (const chunk of result.fullStream) {
         if (chunk.type === 'text-delta') {
@@ -132,13 +134,21 @@ export async function runAgent(
         }
 
         if (chunk.type === 'tool-call') {
-          const input = 'input' in chunk ? chunk.input : {};
+          const input = 'input' in chunk ? (chunk.input as Record<string, unknown>) : {};
           toolCalls.push({
             toolCallId: chunk.toolCallId,
             toolName: chunk.toolName,
-            args: input as Record<string, unknown>,
+            args: input,
           });
           callbacks.onToolCallStart(chunk.toolName, input);
+
+          // Build content part for the assistant message
+          contentParts.push({
+            type: 'tool-call',
+            toolCallId: chunk.toolCallId,
+            toolName: chunk.toolName,
+            input: input,
+          });
         }
       }
     } catch (error) {
@@ -147,11 +157,13 @@ export async function runAgent(
       // Otherwise, rethrow if it's not a "no output" error
       if (
         !currentText &&
-        !streamError.message.includes('No output generated')
+        !streamError.message?.includes('No output generated')
       ) {
         throw streamError;
       }
     }
+
+    const finishReason = await result.finishReason;
 
     fullResponse += currentText;
 
@@ -164,18 +176,21 @@ export async function runAgent(
       break;
     }
 
-    const finishReason = await result.finishReason;
+    // Build assistant message manually from collected data
+    const assistantMessage: ModelMessage = {
+      role: 'assistant',
+      content: contentParts.length > 0 ? contentParts : currentText,
+    };
 
+    // Add assistant message to history
+    logLLMMessages('response <- model', [assistantMessage]);
+    messages.push(assistantMessage);
+    reportTokenUsage();
+
+    // If no tool calls, we're done
     if (finishReason !== 'tool-calls' || toolCalls.length === 0) {
-      const responseMessages = await result.response;
-      messages.push(...responseMessages.messages);
-      reportTokenUsage();
       break;
     }
-
-    const responseMessages = await result.response;
-    logLLMMessages('response <- model (tool-calls)', responseMessages.messages);
-    messages.push(...responseMessages.messages);
 
     let rejected = false;
     for (const tc of toolCalls) {
