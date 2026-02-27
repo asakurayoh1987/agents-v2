@@ -17,23 +17,24 @@ export const filterCompatibleMessages = (
       return false;
     }
 
-    // Keep assistant messages that have text content
+    // Keep assistant messages that have text content or tool calls
     if (msg.role === 'assistant') {
       const content = msg.content;
       if (typeof content === 'string' && content.trim()) {
         return true;
       }
-      // Check for array content with text parts
+      // Check for array content with text or tool-call parts
       if (Array.isArray(content)) {
-        const hasTextContent = content.some((part: unknown) => {
+        const hasUsableContent = content.some((part: unknown) => {
           if (typeof part === 'string' && part.trim()) return true;
-          if (typeof part === 'object' && part !== null && 'text' in part) {
-            const textPart = part as { text?: string };
-            return textPart.text && textPart.text.trim();
+          if (typeof part === 'object' && part !== null) {
+            const obj = part as { type?: string; text?: string };
+            if (obj.type === 'tool-call') return true;
+            if ('text' in obj && obj.text && obj.text.trim()) return true;
           }
           return false;
         });
-        return hasTextContent;
+        return hasUsableContent;
       }
     }
 

@@ -45,6 +45,14 @@ npx biome check .             # Lint and format check
 npx biome check --write .     # Auto-fix lint and formatting
 ```
 
+## Code Style
+
+Enforced by Biome (see `biome.json`):
+- Indentation: **tabs** (not spaces)
+- Quotes: **double quotes** for JS/TS strings
+- Imports: auto-organized by Biome assist
+- TypeScript: strict mode, ESM (`"type": "module"` in package.json), `.ts` extensions in imports
+
 ## Environment
 
 Required `.env` variables:
@@ -80,6 +88,8 @@ Each tool exports an object with:
 - `description` - What the tool does (shown to LLM)
 - `parameters` - Zod schema for arguments
 - `execute` - Async function that returns `ToolResultOutput`
+
+Available tools: `getDateTime`, `readFile`, `writeFile`, `listFiles`, `deleteFile`, `webSearch`, `runCommand`, `firecrawl`
 
 Tool result types:
 - `text` / `json` - Success output
@@ -230,4 +240,3 @@ Any exercises or challenges for students
 | `02-tool-calling` | Tool Calling | Tool definitions and calling logic |
 | `01-intro-to-agents` | Intro to Agents | Basic agent structure |
 | starter | Starter template | What students begin with |
-- do not add any other code other than the code I removed to the lesson, use git status to see that code. ADD NOTHING ELSE. you are only to help make lecture notes and add that code to the notes, no other code. do not look in the repo for any other code other than the code I removed

@@ -1,17 +1,17 @@
-import { streamText, type ModelMessage, type ToolCallPart } from 'ai';
-import { getTracer } from '@lmnr-ai/lmnr';
-import { tools } from './tools/index.ts';
-import { executeTool } from './executeTool.ts';
-import { SYSTEM_PROMPT } from './system/prompt.ts';
-import { Laminar } from '@lmnr-ai/lmnr';
+import { getTracer, Laminar } from '@lmnr-ai/lmnr';
+import {
+  type ModelMessage,
+  streamText,
+  type TextPart,
+  type ToolCallPart,
+} from 'ai';
+import { logLLMMessages } from '../debug.ts';
+import { llm } from '../llm.ts';
 import type {
   AgentCallbacks,
   ToolCallInfo,
   ToolResultOutput,
 } from '../types.ts';
-import { llm } from '../llm.ts';
-import { logLLMMessages } from '../debug.ts';
-
 import {
   calculateUsagePercentage,
   compactConversation,
@@ -20,8 +20,10 @@ import {
   getModelLimits,
   isOverThreshold,
 } from './context/index.ts';
-
+import { executeTool } from './executeTool.ts';
 import { filterCompatibleMessages } from './system/filterMessages.ts';
+import { SYSTEM_PROMPT } from './system/prompt.ts';
+import { tools } from './tools/index.ts';
 
 /**
  * Convert ToolResultOutput to string for callback display.
@@ -134,7 +136,8 @@ export async function runAgent(
         }
 
         if (chunk.type === 'tool-call') {
-          const input = 'input' in chunk ? (chunk.input as Record<string, unknown>) : {};
+          const input =
+            'input' in chunk ? (chunk.input as Record<string, unknown>) : {};
           toolCalls.push({
             toolCallId: chunk.toolCallId,
             toolName: chunk.toolName,
@@ -177,9 +180,16 @@ export async function runAgent(
     }
 
     // Build assistant message manually from collected data
+    // Include both text and tool-call parts to preserve the model's reasoning
+    const assistantContent: Array<TextPart | ToolCallPart> = [];
+    if (currentText) {
+      assistantContent.push({ type: 'text', text: currentText });
+    }
+    assistantContent.push(...contentParts);
+
     const assistantMessage: ModelMessage = {
       role: 'assistant',
-      content: contentParts.length > 0 ? contentParts : currentText,
+      content: assistantContent.length > 0 ? assistantContent : currentText,
     };
 
     // Add assistant message to history
@@ -221,6 +231,15 @@ export async function runAgent(
 
     if (rejected) {
       break;
+    }
+
+    // Check context window after adding tool results — compact if needed
+    const loopTokens = estimateMessagesTokens(messages);
+    if (isOverThreshold(loopTokens.total, modelLimits.contextWindow)) {
+      const systemPrompt = messages[0];
+      const rest = messages.slice(1);
+      const compacted = await compactConversation(rest, modelName);
+      messages = [systemPrompt, ...compacted];
     }
   }
 
